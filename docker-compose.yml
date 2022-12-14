@@ -1,0 +1,72 @@
+version: '3.6'
+
+services:
+  gitlab:
+    image: gitlab/gitlab-ee:15.6.0-ee.0
+    hostname: 'my.domain.ru'
+    shm_size: '256m'
+    # platform: linux/amd64
+    restart: always
+    privileged: true
+    environment:
+      # fix infinite "Checking for unmigrated data on legacy storage"
+      # GITLAB_SKIP_UNMIGRATED_DATA_CHECK: "true"
+      GITLAB_OMNIBUS_CONFIG: |
+        external_url 'https://my.domain.ru'
+        gitlab_rails['gitlab_shell_ssh_port'] = 2224
+        postgresql['shared_buffers'] = "256MB"
+        sidekiq['concurrency'] = 1
+        letsencrypt['enable'] = false
+        nginx['ssl_certificate'] = "/mnt/gitlab/ssl/gitlab.crt"
+        nginx['ssl_certificate_key'] = "/mnt/gitlab/ssl/gitlab.key"
+        nginx['listen_port'] = 8929
+        nginx['listen_https'] = false
+        nginx['proxy_set_headers'] = {
+          "X-Forwarded-Proto" => "https",
+          "X-Forwarded-Ssl" => "on"
+        }
+        gitlab_rails['smtp_enable'] = true
+        gitlab_rails['smtp_address'] = "email-smtp.us-east-1.amazonaws.com"
+        gitlab_rails['smtp_port'] = 587
+        gitlab_rails['smtp_user_name'] = "aws_user"
+        gitlab_rails['smtp_password'] = "aws_password"
+        gitlab_rails['smtp_domain'] = "my.domain.ru"
+        gitlab_rails['smtp_authentication'] = "login"
+        gitlab_rails['smtp_enable_starttls_auto'] = true
+        gitlab_rails['gitlab_email_from'] = 'gitlab@my.domain.ru'
+        gitlab_rails['gitlab_email_reply_to'] = 'noreply@my.domain.ru'
+        gitlab_rails['omniauth_providers'] = [
+          {
+            name: "bitbucket",
+            # label: "Provider name", # optional label for login button, defaults to "Bitbucket"
+            app_id: "___",
+            app_secret: "_______",
+            url: "https://bitbucket.org/"
+          }
+        ]
+        gitlab_rails['artifacts_enabled'] = true
+        gitlab_rails['artifacts_path'] = "/mnt/storage/artifacts"
+        gitlab_rails['expire_build_artifacts_worker_cron'] = "*/14 * * * *"
+        # prometheus_monitoring['enable'] = false
+        # grafana['enable'] = false
+    ports:
+      - '587:587'
+      - '8929:8929'
+      - '2224:22'
+    volumes:
+      - ./docker/config/:/etc/gitlab/:delegated
+      - ./docker/logs/:/var/log/gitlab/:delegated
+      - ./docker/data/:/var/opt/gitlab/:delegated
+      - /etc/letsencrypt/live/my.domain.ru/fullchain.pem:/mnt/gitlab/ssl/gitlab.crt:ro
+      - /etc/letsencrypt/live/my.domain.ru/privkey.pem:/mnt/gitlab/ssl/gitlab.key:ro
+      - artifacts:/mnt/storage/artifacts/
+ 
+  gitlab-runner:
+    image: 'gitlab/gitlab-runner:latest'
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./docker/runner/config:/etc/gitlab-runner
+    restart: unless-stopped
+
+volumes:
+  artifacts:
